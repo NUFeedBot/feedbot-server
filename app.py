@@ -1,8 +1,13 @@
+import os
 from flask import Flask, request
-from postgres import Postgres
+from flask_sqlalchemy import SQLAlchemy
+
+# NOTE(dbp 2024-02-06): bit of a hack; probably better to do this with a .env file
+if not "DATABASE_URL" in os.environ:
+    os.environ["DATABASE_URL"] = 'postgresql:///feedbot_user:111@feedbot_dev'
 
 app = Flask(__name__)
-db = Postgres()
+db = SQLAlchemy()
 
 
 @app.route("/")
