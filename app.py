@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import List
 from random import randint
+import json
 
 from flask import Flask, request
 
@@ -32,7 +33,7 @@ class Submission(db.Model):
     id: Mapped[int] = mapped_column(primary_key=True, unique=True)
     sso: Mapped[str]
     code: Mapped[str]
-    comments: Mapped[List["Comment"]] = relationship(back_populates="entry")
+    comments: Mapped[List["Comment"]] = relationship()
 
 
 class Comment(db.Model):
@@ -41,7 +42,9 @@ class Comment(db.Model):
     line_number: Mapped[int] = mapped_column(primary_key=True)
     text: Mapped[str]
     subm_id = mapped_column(ForeignKey("submissions.id"))
-    entry: Mapped[Submission] = relationship(back_populates="comments")
+
+    def __repr__(self):
+        return f'Comment(line_number: "{self.line_number}", text: "{self.text}")'
 
 
 with app.app_context():
@@ -87,6 +90,18 @@ def validate(data):
 # formatted data (I think just exchanging NUID or email for an SSO token?)
 def transform(data):
     gen_id = randint(200, 100000)
+
+    comment_json_list = json.loads(data["comments"])["comments"]
+    comment_list = []
+    for com_json in comment_json_list:
+        comment_list.append(
+            Comment(
+                line_number=com_json["line_number"],
+                text=com_json["text"],
+                subm_id=gen_id
+            )
+        )
+
     return (
         Submission(
             # TODO: actual ID assignment
@@ -94,7 +109,7 @@ def transform(data):
             # TODO: SSO assignment
             sso="",
             code=data["code"],
-            comments=[],
+            comments=comment_list,
         ),
         gen_id
     )
