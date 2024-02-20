@@ -90,6 +90,7 @@ def validate(data):
 # this will eventually change the received entry to contain properly
 # formatted data (I think just exchanging NUID or email for an SSO token?)
 def transform(data):
+    # BAD: DO NOT DO PURE RANDOM FOR ID GEN
     gen_id = randint(200, 100000)
 
     comment_json_list = json.loads(data["comments"])["comments"]
