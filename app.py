@@ -39,7 +39,8 @@ class Submission(db.Model):
 class Comment(db.Model):
     __tablename__ = "comments"
 
-    line_number: Mapped[int] = mapped_column(primary_key=True)
+    comment_id: Mapped[int] = mapped_column(primary_key=True)
+    line_number: Mapped[int]
     text: Mapped[str]
     subm_id = mapped_column(ForeignKey("submissions.id"))
 
@@ -96,6 +97,8 @@ def transform(data):
     for com_json in comment_json_list:
         comment_list.append(
             Comment(
+                # TODO: replace with actual ID
+                comment_id=randint(200, 1000000),
                 line_number=com_json["line_number"],
                 text=com_json["text"],
                 subm_id=gen_id
