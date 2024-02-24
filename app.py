@@ -1,27 +1,49 @@
 from __future__ import annotations
 
 import os
+import secrets
+import requests
 from typing import List
 from random import randint
+from urllib.parse import urlencode
 import json
+from dotenv import load_dotenv
 
-from flask import Flask, request
+from flask import Flask, redirect, request, url_for, session, current_app, abort, flash
 
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    load_only,
+    mapped_column,
+    relationship,
+)
 from sqlalchemy import ForeignKey
 
 # NOTE(dbp 2024-02-06): bit of a hack; probably better to do this with a .env file
 if "DATABASE_URL" not in os.environ:
-    os.environ["DATABASE_URL"] = 'postgresql://feedbot_user:111@localhost/feedbot_dev'
+    os.environ["DATABASE_URL"] = "postgresql://feedbot_user:111@localhost/feedbot_dev"
 
 
 class Base(DeclarativeBase):
     pass
 
 
+load_dotenv()
+
 app = Flask(__name__)
+app.config["SECRET_KEY"] = "some secret for session"
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["DATABASE_URL"]
+app.config["OAUTH2"] = {
+    "client_id": os.environ.get("CLIENT_ID"),
+    "client_secret": os.environ.get("CLIENT_SECRET"),
+    "redirect_url": "http://localhost:5000/auth",
+    "authorize_url": os.environ.get("AUTHORIZE_URL"),
+    "token_url": os.environ.get("TOKEN_URL"),
+    "user_info_url": "https://graph.microsoft.com/v1.0/me?$select=employeeId,mail",
+    "scopes": ["openid", "email", "profile", "offline_access", "User.Read"],
+}
 
 db = SQLAlchemy(model_class=Base)
 db.init_app(app)
@@ -54,9 +76,97 @@ with app.app_context():
 
 @app.route("/")
 def hello_world():
-    return "<p>Hello, World!</p>"
+    return f"<p>Hello, {session["email"]}, this is your nuid {session["nuid"]}</p> "
 
 
+@app.route("/authorize")
+def oauth2_authorize():
+    if session.get("email"):
+        return redirect(url_for("hello_world"))
+
+    session["oauth2_state"] = secrets.token_urlsafe(16)
+
+    oauth = current_app.config["OAUTH2"]
+
+    # create a query string with all the OAuth2 parameters
+    qs = urlencode(
+        {
+            "client_id": oauth["client_id"],
+            "redirect_uri": url_for("oauth2_callback", _external=True),
+            "response_type": "code",
+            "scope": " ".join(oauth["scopes"]),
+            "state": session["oauth2_state"],
+        }
+    )
+
+    # redirect the user to the OAuth2 provider authorization URL
+    return redirect(oauth["authorize_url"] + "?" + qs)
+
+
+@app.route("/auth")
+def oauth2_callback():
+    if session.get("email"):
+        return redirect(url_for("hello_world"))
+
+    oauth = current_app.config["OAUTH2"]
+
+    # if there was an authentication error, flash the error messages and exit
+    if "error" in request.args:
+        for k, v in request.args.items():
+            if k.startswith("error"):
+                flash(f"{k}: {v}")
+        return redirect(url_for("hello_world"))
+
+    # make sure that the state parameter matches the one we created in the
+    # authorization request
+    if request.args["state"] != session.get("oauth2_state"):
+        abort(401)
+
+    # make sure that the authorization code is present
+    if "code" not in request.args:
+        abort(401)
+
+    # exchange the authorization code for an access token
+    response = requests.post(
+        oauth["token_url"],
+        data={
+            "client_id": oauth["client_id"],
+            "client_secret": oauth["client_secret"],
+            "code": request.args["code"],
+            "grant_type": "authorization_code",
+            "redirect_uri": url_for("oauth2_callback", _external=True),
+        },
+        headers={"Accept": "application/json"},
+    )
+    if response.status_code != 200:
+        abort(401)
+    oauth2_token = response.json().get("access_token")
+    if not oauth2_token:
+        abort(401)
+
+    # use the access token to get the user's email address
+    response = requests.get(
+        oauth["user_info_url"],
+        headers={
+            "Authorization": "Bearer " + oauth2_token,
+            "Accept": "application/json",
+        },
+    )
+    if response.status_code != 200:
+        abort(401)
+
+    print(response.json())
+
+    email = response.json()["mail"]
+    nuid = response.json()["employeeId"]
+
+    session["email"] = email
+    session["nuid"] = nuid
+
+    return redirect(url_for("hello_world"))
+
+
+@app.route("/submission/<int:id>")
 @app.route("/submission/<int:id>")
 def submission(id):
     submission = db.get_or_404(Submission, id)
@@ -68,7 +178,7 @@ def submission(id):
     </p>"""
 
 
-@app.route("/entry", methods=['POST'])
+@app.route("/entry", methods=["POST"])
 def receive_entry():
     data = request.args
     print(f"data: {data}")
@@ -78,7 +188,7 @@ def receive_entry():
         print(f"id: {id}")
         db.session.add(submission)
         db.session.commit()
-    return {'msg': f"id: {id}"}, 200
+    return {"msg": f"id: {id}"}, 200
 
 
 # this will eventually validate that the sender of an entry is us,
@@ -102,7 +212,7 @@ def transform(data):
                 comment_id=randint(200, 1000000),
                 line_number=com_json["line_number"],
                 text=com_json["text"],
-                subm_id=gen_id
+                subm_id=gen_id,
             )
         )
 
@@ -115,5 +225,9 @@ def transform(data):
             code=data["code"],
             comments=comment_list,
         ),
-        gen_id
+        gen_id,
     )
+
+
+if __name__ == "__main__":
+    app.run(host="localhost", debug=True, port=5001)
