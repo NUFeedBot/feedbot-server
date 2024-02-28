@@ -76,7 +76,7 @@ with app.app_context():
 
 @app.route("/")
 def hello_world():
-    return f"<p>Hello, {session["email"]}, this is your nuid {session["nuid"]}</p> "
+    return f"<p>Hello, {session['email']}, this is your nuid {session['nuid']}</p> "
 
 
 @app.route("/authorize")
