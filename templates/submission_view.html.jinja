@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Review Comments | Feedbot</title>
+</head>
+<body>
+    <div>
+        {% for item in code_pairs %}
+            <pre><code>{{item.code}}</code></pre>
+            {% if item.comment is string %}
+                <p>Comment: {{item.comment}}</p>
+            {% endif %}
+        {% endfor %}
+    </div>
+</body>

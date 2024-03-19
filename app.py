@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 import json
 from dotenv import load_dotenv
 
-from flask import Flask, redirect, request, url_for, session, current_app, abort, flash
+from flask import Flask, redirect, request, url_for, session, current_app, abort, flash, render_template
 
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import (
@@ -165,18 +165,38 @@ def oauth2_callback():
 
     return redirect(url_for("hello_world"))
 
+class CodeCommentPair:
+    def __init__(self, code, comment):
+        self.code = code
+        self.comment = comment
+
+def get_code_com_pairs(submission):
+    result = []
+    last_comment_line = 0
+
+    for comment in submission.comments:
+        code_block = ""
+        for code_line in submission.code.split('\n')[last_comment_line:comment.line_number]:
+            code_block += code_line + '\n'
+        result.append(CodeCommentPair(code_block.strip(), comment.text))
+        last_comment_line = comment.line_number
+
+    remaining_code = ""
+    for code_line in submission.code.split('\n')[last_comment_line:]:
+        remaining_code += code_line + '\n'
+    if remaining_code.strip():
+        result.append(CodeCommentPair(remaining_code.strip(), None))
+
+    return result
 
 @app.route("/submission/<int:id>")
 @app.route("/submission/<int:id>")
 def submission(id):
     submission = db.get_or_404(Submission, id)
-    return f"""<p>
-        id: {submission.id},
-        sso: {submission.sso},
-        code: <code>{submission.code}</code>
-        comments: {submission.comments}
-    </p>"""
-
+    return render_template(
+        "submission_view.html.jinja",
+        code_pairs=get_code_com_pairs(submission)
+    )
 
 @app.route("/entry", methods=["POST"])
 def receive_entry():
