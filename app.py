@@ -8,6 +8,7 @@ from random import randint
 from urllib.parse import urlencode
 import json
 from dotenv import load_dotenv
+import uuid
 
 from flask import Flask, redirect, request, url_for, session, current_app, abort, flash, render_template
 
@@ -20,6 +21,7 @@ from sqlalchemy.orm import (
     relationship,
 )
 from sqlalchemy import ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
 
 # NOTE(dbp 2024-02-06): bit of a hack; probably better to do this with a .env file
 if "DATABASE_URL" not in os.environ:
@@ -28,7 +30,6 @@ if "DATABASE_URL" not in os.environ:
 
 class Base(DeclarativeBase):
     pass
-
 
 load_dotenv()
 
@@ -52,7 +53,7 @@ db.init_app(app)
 class Submission(db.Model):
     __tablename__ = "submissions"
 
-    id: Mapped[int] = mapped_column(primary_key=True, unique=True)
+    id = db.Column(UUID(as_uuid=True), primary_key=True, unique=True, default=uuid.uuid4)
     sso: Mapped[str]
     code: Mapped[str]
     comments: Mapped[List["Comment"]] = relationship()
@@ -61,7 +62,7 @@ class Submission(db.Model):
 class Comment(db.Model):
     __tablename__ = "comments"
 
-    comment_id: Mapped[int] = mapped_column(primary_key=True)
+    comment_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     line_number: Mapped[int]
     text: Mapped[str]
     subm_id = mapped_column(ForeignKey("submissions.id"))
@@ -189,8 +190,8 @@ def get_code_com_pairs(submission):
 
     return result
 
-@app.route("/submission/<int:id>")
-@app.route("/submission/<int:id>")
+@app.route("/submission/<id>")
+@app.route("/submission/<id>")
 def submission(id):
     submission = db.get_or_404(Submission, id)
     return render_template(
@@ -221,15 +222,13 @@ def validate(data):
 # formatted data (I think just exchanging NUID or email for an SSO token?)
 def transform(data):
     # BAD: DO NOT DO PURE RANDOM FOR ID GEN
-    gen_id = randint(200, 100000)
+    gen_id = uuid.uuid4()
 
     comment_json_list = json.loads(data["comments"])["comments"]
     comment_list = []
     for com_json in comment_json_list:
         comment_list.append(
             Comment(
-                # TODO: replace with actual ID
-                comment_id=randint(200, 1000000),
                 line_number=com_json["line_number"],
                 text=com_json["text"],
                 subm_id=gen_id,
