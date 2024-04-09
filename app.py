@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 import json
 from dotenv import load_dotenv
 import uuid
+import re
 
 from flask import Flask, redirect, request, url_for, session, current_app, abort, flash, render_template
 
@@ -26,7 +27,12 @@ from sqlalchemy.dialects.postgresql import UUID
 # NOTE(dbp 2024-02-06): bit of a hack; probably better to do this with a .env file
 if "DATABASE_URL" not in os.environ:
     os.environ["DATABASE_URL"] = "postgresql://feedbot_user:111@localhost/feedbot_dev"
+else:
+    # SQLAlchemy does not support postgres: url strings, but it seems that fly.io produces them...
+    os.environ["DATABASE_URL"] = re.sub("postgres:","postgresql:",os.environ["DATABASE_URL"])
 
+# NOTE(dbp 2024-04-09): Not sure how else to see what the DB they create for us is called...
+print(os.environ["DATABASE_URL"],flush=True)
 
 class Base(DeclarativeBase):
     pass
@@ -77,7 +83,10 @@ with app.app_context():
 
 @app.route("/")
 def hello_world():
-    return f"<p>Hello, {session['email']}, this is your nuid {session['nuid']}</p> "
+    if session.get("email"):
+        return f"<p>Hello, {session['email']}, this is your nuid {session['nuid']}</p> "
+    else:
+        return "Hello world!"
 
 
 @app.route("/authorize")
