@@ -2,14 +2,24 @@
 <html lang="en">
 <head>
     <title>Review Comments | Feedbot</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.classless.min.css" />
 </head>
 <body>
-    <div>
-        {% for item in code_pairs %}
-            <pre><code>{{item.code}}</code></pre>
-            {% if item.comment is string %}
-                <p>Comment: {{item.comment}}</p>
-            {% endif %}
+    <header>
+        <h1>CS2500 Feedbot</h1>
+        <article>
+            <p><strong>WARNING:</strong> This feedback is generated automatically using a Large Language Model.</p>
+            <p>While we expect them to usually be helpful, there are always possibilities for mistakes: comments received here should not override your own judgment, and <strong>you will not get points back if you follow advice here that leads to mistakes</strong>.</p>
+        </article>
+    </header>
+    <main class="container">
+        {% for comment in submission.comments %}
+            <article>
+                <h3>{{comment.path}}</h3>
+                <blockquote>{{comment.text}}</blockquote>
+                <pre><code>{{comment.code}}</code></pre>
+            </article>
         {% endfor %}
-    </div>
+    </main>
 </body>
+h

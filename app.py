@@ -61,7 +61,6 @@ class Submission(db.Model):
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, unique=True, default=uuid.uuid4)
     sso: Mapped[str]
-    code: Mapped[str]
     comments: Mapped[List["Comment"]] = relationship()
 
 
@@ -69,8 +68,9 @@ class Comment(db.Model):
     __tablename__ = "comments"
 
     comment_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    line_number: Mapped[int]
     text: Mapped[str]
+    code: Mapped[str]
+    path: Mapped[str]
     subm_id = mapped_column(ForeignKey("submissions.id"))
 
     def __repr__(self):
@@ -175,37 +175,13 @@ def oauth2_callback():
 
     return redirect(url_for("hello_world"))
 
-class CodeCommentPair:
-    def __init__(self, code, comment):
-        self.code = code
-        self.comment = comment
-
-def get_code_com_pairs(submission):
-    result = []
-    last_comment_line = 0
-
-    for comment in submission.comments:
-        code_block = ""
-        for code_line in submission.code.split('\n')[last_comment_line:comment.line_number]:
-            code_block += code_line + '\n'
-        result.append(CodeCommentPair(code_block.strip(), comment.text))
-        last_comment_line = comment.line_number
-
-    remaining_code = ""
-    for code_line in submission.code.split('\n')[last_comment_line:]:
-        remaining_code += code_line + '\n'
-    if remaining_code.strip():
-        result.append(CodeCommentPair(remaining_code.strip(), None))
-
-    return result
-
 @app.route("/submission/<id>")
 @app.route("/submission/<id>")
 def submission(id):
     submission = db.get_or_404(Submission, id)
     return render_template(
         "submission_view.html.jinja",
-        code_pairs=get_code_com_pairs(submission)
+        submission=submission
     )
 
 @app.route("/entry", methods=["POST"])
@@ -238,8 +214,9 @@ def transform(data):
     for com_json in comment_json_list:
         comment_list.append(
             Comment(
-                line_number=com_json["line_number"],
                 text=com_json["text"],
+                code=com_json["code"],
+                path=com_json["path"],
                 subm_id=gen_id,
             )
         )
@@ -250,7 +227,6 @@ def transform(data):
             id=gen_id,
             # TODO: SSO assignment
             sso="",
-            code=data["code"],
             comments=comment_list,
         ),
         gen_id,
