@@ -24,6 +24,8 @@ from sqlalchemy.orm import (
 from sqlalchemy import ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 
+staff = json.loads(open("staff.json").read())
+
 # NOTE(dbp 2024-02-06): bit of a hack; probably better to do this with a .env file
 if "DATABASE_URL" not in os.environ:
     os.environ["DATABASE_URL"] = "postgresql://feedbot_user:111@localhost/feedbot_dev"
@@ -60,7 +62,7 @@ class Submission(db.Model):
     __tablename__ = "submissions"
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, unique=True, default=uuid.uuid4)
-    sso: Mapped[str]
+    email: Mapped[str]
     comments: Mapped[List["Comment"]] = relationship()
 
 
@@ -80,19 +82,24 @@ class Comment(db.Model):
 with app.app_context():
     db.create_all()
 
+def redirect_back():
+    if session.get("redirect_to"):
+        return redirect(session["redirect_to"])
+    else:
+        return redirect(request.referrer)
 
 @app.route("/")
-def hello_world():
-    if session.get("email"):
-        return f"<p>Hello, {session['email']}, this is your nuid {session['nuid']}</p> "
-    else:
-        return "Hello world!"
+def index():
+    return render_template(
+        "index.html.jinja",
+        session=session
+    )
 
 
-@app.route("/authorize")
-def oauth2_authorize():
+@app.route("/login")
+def oauth2_login():
     if session.get("email"):
-        return redirect(url_for("hello_world"))
+        return redirect_back()
 
     session["oauth2_state"] = secrets.token_urlsafe(16)
 
@@ -112,11 +119,17 @@ def oauth2_authorize():
     # redirect the user to the OAuth2 provider authorization URL
     return redirect(oauth["authorize_url"] + "?" + qs)
 
+@app.route("/logout")
+def oauth2_logout():
+    if session.get("email"):
+        del session["email"]
+    return redirect_back()
+
 
 @app.route("/auth")
 def oauth2_callback():
     if session.get("email"):
-        return redirect(url_for("hello_world"))
+        return redirect(session["redirect_to"])
 
     oauth = current_app.config["OAUTH2"]
 
@@ -125,7 +138,7 @@ def oauth2_callback():
         for k, v in request.args.items():
             if k.startswith("error"):
                 flash(f"{k}: {v}")
-        return redirect(url_for("hello_world"))
+        return redirect_back()
 
     # make sure that the state parameter matches the one we created in the
     # authorization request
@@ -165,20 +178,24 @@ def oauth2_callback():
     if response.status_code != 200:
         abort(401)
 
-    print(response.json())
-
     email = response.json()["mail"]
     nuid = response.json()["employeeId"]
 
     session["email"] = email
     session["nuid"] = nuid
 
-    return redirect(url_for("hello_world"))
+    return redirect(session["redirect_to"])
 
 @app.route("/submission/<id>")
 @app.route("/submission/<id>")
 def submission(id):
+    if not session.get("email"):
+        session["redirect_to"] = request.full_path
+        return oauth2_login()
+
     submission = db.get_or_404(Submission, id)
+    if (submission.email != session["email"]) and (session["email"] not in staff):
+        return render_template("unavailable.html.jinja")
     return render_template(
         "submission_view.html.jinja",
         submission=submission
@@ -203,8 +220,6 @@ def validate(data):
     return True
 
 
-# this will eventually change the received entry to contain properly
-# formatted data (I think just exchanging NUID or email for an SSO token?)
 def transform(data):
     # BAD: DO NOT DO PURE RANDOM FOR ID GEN
     gen_id = uuid.uuid4()
@@ -225,8 +240,7 @@ def transform(data):
         Submission(
             # TODO: actual ID assignment
             id=gen_id,
-            # TODO: SSO assignment
-            sso="",
+            email=data["email"],
             comments=comment_list,
         ),
         gen_id,

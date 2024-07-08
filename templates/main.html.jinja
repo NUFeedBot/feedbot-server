@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Review Comments | Feedbot</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.classless.min.css" />
+</head>
+<body>
+    <header>
+      <nav>
+        <ul>
+          <li><strong>CS2500 Feedbot</strong></li>
+        </ul>
+        <ul>
+          {% if session.get("email") %}
+            <li>{{ session["email"] }}</li>
+            <li><a href="/logout">Logout</a></li>
+          {% endif %}
+        </ul>
+      </nav>
+
+      {% block header %}
+      {% endblock %}
+
+    </header>
+    <main class="container">
+      {% block content %}
+      {% endblock %}
+    </main>
+</body>
