@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 import uuid
 import re
 
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 from flask import Flask, redirect, request, url_for, session, current_app, abort, flash, render_template
 
 from flask_sqlalchemy import SQLAlchemy
@@ -47,12 +49,15 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["DATABASE_URL"]
 app.config["OAUTH2"] = {
     "client_id": os.environ.get("CLIENT_ID"),
     "client_secret": os.environ.get("CLIENT_SECRET"),
-    "redirect_url": "http://localhost:5000/auth",
     "authorize_url": os.environ.get("AUTHORIZE_URL"),
     "token_url": os.environ.get("TOKEN_URL"),
     "user_info_url": "https://graph.microsoft.com/v1.0/me?$select=employeeId,mail",
     "scopes": ["openid", "email", "profile", "offline_access", "User.Read"],
 }
+# Fix for redirects not using https
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+
+
 
 db = SQLAlchemy(model_class=Base)
 db.init_app(app)
