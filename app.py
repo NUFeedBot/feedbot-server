@@ -88,7 +88,7 @@ with app.app_context():
     db.create_all()
 
 def redirect_back():
-    if session.get("redirect_to"):
+    if "redirect_to" in session:
         return redirect(session["redirect_to"])
     else:
         return redirect(request.referrer)
@@ -103,7 +103,7 @@ def index():
 
 @app.route("/login")
 def oauth2_login():
-    if session.get("email"):
+    if "email" in session:
         return redirect_back()
 
     session["oauth2_state"] = secrets.token_urlsafe(16)
@@ -126,14 +126,14 @@ def oauth2_login():
 
 @app.route("/logout")
 def oauth2_logout():
-    if session.get("email"):
+    if "email" in session:
         del session["email"]
     return redirect_back()
 
 
 @app.route("/auth")
 def oauth2_callback():
-    if session.get("email"):
+    if "email" in session:
         return redirect(session["redirect_to"])
 
     oauth = current_app.config["OAUTH2"]
@@ -189,15 +189,17 @@ def oauth2_callback():
     session["email"] = email
     session["nuid"] = nuid
 
-    if session.get("redirect_to"):
-        return redirect(session["redirect_to"])
+    if "redirect_to" in session:
+        target = session["redirect_to"]
+        del session["redirect_to"]
+        return redirect(target)
     else:
         return redirect("/")
 
 @app.route("/submission/<id>")
 @app.route("/submission/<id>")
 def submission(id):
-    if not session.get("email"):
+    if "email" not in session:
         session["redirect_to"] = request.full_path
         return oauth2_login()
 
