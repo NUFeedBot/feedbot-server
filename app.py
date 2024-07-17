@@ -189,7 +189,10 @@ def oauth2_callback():
     session["email"] = email
     session["nuid"] = nuid
 
-    return redirect(session["redirect_to"])
+    if session.get("redirect_to"):
+        return redirect(session["redirect_to"])
+    else:
+        return redirect("/")
 
 @app.route("/submission/<id>")
 @app.route("/submission/<id>")
