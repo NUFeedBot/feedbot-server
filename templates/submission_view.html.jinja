@@ -18,6 +18,14 @@
         <h3>{{comment.path}}</h3>
         <blockquote>{{comment.text}}</blockquote>
         <pre><code>{{comment.code}}</code></pre>
+        <h4>How useful did you find this comment?<h4>
+        <form method="POST">
+            {{ form.hidden_tag() }}
+            {{ form.feedback_choice.label }}
+            {{ form.feedback_choice() }}
+            <br/>
+            {{ form.submit() }}
+        </form>
     </article>
 {% endfor %}
 {% endblock %}

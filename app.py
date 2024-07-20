@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import os
 import secrets
 import requests
@@ -10,6 +9,9 @@ import json
 from dotenv import load_dotenv
 import uuid
 import re
+from flask_wtf import FlaskForm
+from wtforms import SelectField, SubmitField
+from wtforms.validators import DataRequired
 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -27,6 +29,10 @@ from sqlalchemy import ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 
 staff = json.loads(open("staff.json").read())
+
+class FeedbackForm(FlaskForm):
+    feedback_choice = SelectField(u'Utility', choices=[('very', 'Very useful'), ('some', 'Somewhat useful'), ('no', 'Not helpful')])
+    submit = SubmitField("Submit")
 
 # NOTE(dbp 2024-02-06): bit of a hack; probably better to do this with a .env file
 if "DATABASE_URL" not in os.environ:
@@ -196,8 +202,7 @@ def oauth2_callback():
     else:
         return redirect("/")
 
-@app.route("/submission/<id>")
-@app.route("/submission/<id>")
+@app.route("/submission/<id>", methods=['GET', 'POST'])
 def submission(id):
     if "email" not in session:
         session["redirect_to"] = request.full_path
@@ -206,9 +211,18 @@ def submission(id):
     submission = db.get_or_404(Submission, id)
     if (submission.email != session["email"]) and (session["email"] not in staff):
         return render_template("unavailable.html.jinja")
+    
+    feedback_choice = None
+    form = FeedbackForm()
+
+    if (form.validate_on_submit()):
+        feedback_choice = form.feedback_choice.data
+
     return render_template(
         "submission_view.html.jinja",
-        submission=submission
+        submission=submission,
+        feedback_choice = feedback_choice,
+        form = form
     )
 
 @app.route("/entry", methods=["POST"])
