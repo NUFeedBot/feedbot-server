@@ -11,7 +11,6 @@ import uuid
 import re
 from flask_wtf import FlaskForm
 from wtforms import SelectField, SubmitField
-from wtforms.validators import DataRequired
 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -31,7 +30,7 @@ from sqlalchemy.dialects.postgresql import UUID
 staff = json.loads(open("staff.json").read())
 
 class FeedbackForm(FlaskForm):
-    feedback_choice = SelectField(u'Utility', choices=[('very', 'Very useful'), ('some', 'Somewhat useful'), ('no', 'Not helpful')])
+    feedback_choice = SelectField(u"How useful did you find this comment?", choices=[('very', 'Very useful'), ('some', 'Somewhat useful'), ('no', 'Not helpful')])
     submit = SubmitField("Submit")
 
 # NOTE(dbp 2024-02-06): bit of a hack; probably better to do this with a .env file
@@ -212,17 +211,21 @@ def submission(id):
     if (submission.email != session["email"]) and (session["email"] not in staff):
         return render_template("unavailable.html.jinja")
     
-    feedback_choice = None
-    form = FeedbackForm()
+    forms = [] 
+    for comment in submission.comments:
+        feedback_choice = None
+        form = FeedbackForm()
+        forms.append([feedback_choice, form])
 
-    if (form.validate_on_submit()):
-        feedback_choice = form.feedback_choice.data
+    for form in forms:
+        if (form[1].validate_on_submit()):
+            form[0] = form[1].feedback_choice.data
 
     return render_template(
         "submission_view.html.jinja",
         submission=submission,
         feedback_choice = feedback_choice,
-        form = form
+        forms = forms
     )
 
 @app.route("/entry", methods=["POST"])
