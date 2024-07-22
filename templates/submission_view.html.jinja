@@ -13,17 +13,17 @@
 {% endblock %}
 
 {% block content %}
-{% for comment in submission.comments %}
+{% for (comment, form) in comments_and_forms %}
     <article>
         <h3>{{comment.path}}</h3>
         <blockquote>{{comment.text}}</blockquote>
         <pre><code>{{comment.code}}</code></pre>
         <form method="POST">
-            {{ forms[loop.index - 1][1].hidden_tag() }}
-            {{ forms[loop.index - 1][1].feedback_choice.label }}
-            {{ forms[loop.index - 1][1].feedback_choice() }}
+            {{ form.hidden_tag() }}
+            {{ form.feedback_choice.label }}
+            {{ form.feedback_choice() }}
             <br/>
-            {{ forms[loop.index - 1][1].submit() }}
+            <input type="submit" name="{{comment.comment_id}}" value= "Submit">
         </form>
     </article>
 {% endfor %}

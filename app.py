@@ -11,7 +11,7 @@ import uuid
 import re
 from flask_wtf import FlaskForm
 from wtforms import SelectField, SubmitField
-
+WTF_CSRF_ENABLED = False
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from flask import Flask, redirect, request, url_for, session, current_app, abort, flash, render_template
@@ -29,9 +29,25 @@ from sqlalchemy.dialects.postgresql import UUID
 
 staff = json.loads(open("staff.json").read())
 
-class FeedbackForm(FlaskForm):
+class FeedbackDropdown(FlaskForm):
+    class Meta:
+        csrf = False
+
     feedback_choice = SelectField(u"How useful did you find this comment?", choices=[('very', 'Very useful'), ('some', 'Somewhat useful'), ('no', 'Not helpful')])
     submit = SubmitField("Submit")
+    
+    def __init__(self, comment_id, *args, **kwargs):
+        self.comment_id = comment_id
+        super(FlaskForm, self).__init__(*args, **kwargs)
+    
+       
+def make_feedback_form(comment_ids, req_form):
+    """Returns a list of feedback dropdowns, with each form corresponding to an id in comment_ids"""
+    forms = []
+    for id in comment_ids:
+        forms.append(FeedbackDropdown(id, req_form))
+    
+    return forms
 
 # NOTE(dbp 2024-02-06): bit of a hack; probably better to do this with a .env file
 if "DATABASE_URL" not in os.environ:
@@ -201,7 +217,7 @@ def oauth2_callback():
     else:
         return redirect("/")
 
-@app.route("/submission/<id>", methods=['GET', 'POST'])
+@app.route("/submission/<id>", methods=["GET", "POST"])
 def submission(id):
     if "email" not in session:
         session["redirect_to"] = request.full_path
@@ -211,21 +227,33 @@ def submission(id):
     if (submission.email != session["email"]) and (session["email"] not in staff):
         return render_template("unavailable.html.jinja")
     
-    forms = [] 
-    for comment in submission.comments:
-        feedback_choice = None
-        form = FeedbackForm()
-        forms.append([feedback_choice, form])
+    comment_ids = [comment.comment_id for comment in submission.comments]
+    feedback_form = make_feedback_form(comment_ids, request.form)
 
-    for form in forms:
-        if (form[1].validate_on_submit()):
-            form[0] = form[1].feedback_choice.data
+    
+    feedback_comment = None # comment for which feedback was given
+    id = None # id of the above comment 
+    for key in request.form.keys():
+        if request.form[key] == "Submit":
+            id = key
+            print(key in [str(x) for x in comment_ids])
+
+    
+    for comment in submission.comments:
+        if str(comment.comment_id) == id:
+            feedback_comment = comment 
+
+
+
+    #Default all dropdowns to "very useful" everytime a new form submission is made
+    for dropdown in feedback_form:
+        dropdown.feedback_choice.data = "very"
+           
 
     return render_template(
         "submission_view.html.jinja",
-        submission=submission,
-        feedback_choice = feedback_choice,
-        forms = forms
+        submission = submission,
+        comments_and_forms = zip(submission.comments, feedback_form) 
     )
 
 @app.route("/entry", methods=["POST"])
