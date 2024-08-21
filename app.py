@@ -9,9 +9,6 @@ import json
 from dotenv import load_dotenv
 import uuid
 import re
-from flask_wtf import FlaskForm
-from wtforms import SelectField, SubmitField
-WTF_CSRF_ENABLED = False
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from flask import Flask, redirect, request, url_for, session, current_app, abort, flash, render_template
@@ -24,31 +21,11 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
-from sqlalchemy import ForeignKey, Integer, DateTime
+from sqlalchemy import ForeignKey, Integer, DateTime, String
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
 
 staff = json.loads(open("staff.json").read())
-
-class FeedbackDropdown(FlaskForm):
-    class Meta:
-        csrf = False
-
-    feedback_choice = SelectField(u"How useful did you find this comment?", choices=[('very', 'Very useful'), ('some', 'Somewhat useful'), ('no', 'Not helpful')])
-    submit = SubmitField("Submit")
-    
-    def __init__(self, comment_id, *args, **kwargs):
-        self.comment_id = comment_id
-        super(FlaskForm, self).__init__(*args, **kwargs)
-    
-       
-def make_feedback_form(comment_ids, req_form):
-    """Returns a list of feedback dropdowns, with each form corresponding to an id in comment_ids"""
-    forms = []
-    for id in comment_ids:
-        forms.append(FeedbackDropdown(id, req_form))
-    
-    return forms
 
 # NOTE(dbp 2024-02-06): bit of a hack; probably better to do this with a .env file
 if "DATABASE_URL" not in os.environ:
@@ -90,17 +67,20 @@ class Submission(db.Model):
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, unique=True, default=uuid.uuid4)
     email: Mapped[str]
-    comments: Mapped[List["Comment"]] = relationship()
+    comments: Mapped[List["Comment"]] = relationship(back_populates="submission")
 
 
 class Comment(db.Model):
     __tablename__ = "comments"
 
-    comment_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     text: Mapped[str]
     code: Mapped[str]
     path: Mapped[str]
     submission_id = mapped_column(ForeignKey("submissions.id"))
+    submission: Mapped["Submission"] = relationship(back_populates="comments")
+    feedbacks : Mapped[List["Feedback"]] = relationship(back_populates="comment")
+
 
     def __repr__(self):
         return f'Comment(line_number: "{self.line_number}", text: "{self.text}")'
@@ -112,6 +92,15 @@ class Viewed(db.Model):
     id = db.Column(Integer, primary_key=True, autoincrement=True)
     submission_id = mapped_column(ForeignKey("submissions.id"))
     viewed_at = db.Column(DateTime(timezone=True), server_default=func.now())
+
+class Feedback(db.Model):
+    __tablename__ = "feedback"
+
+    id = db.Column(Integer, primary_key=True, autoincrement=True)
+    comment_id = mapped_column(ForeignKey("comments.id"))
+    comment: Mapped["Comment"] = relationship(back_populates="feedbacks")
+    added_at = db.Column(DateTime(timezone=True), server_default=func.now())
+    rating = db.Column(String)
 
 
 with app.app_context():
@@ -226,6 +215,26 @@ def oauth2_callback():
     else:
         return redirect("/")
 
+@app.route("/feedback/<id>/<rating>", methods=["POST"])
+def feedback(rating,id):
+    if "email" not in session:
+        session["redirect_to"] = request.full_path
+        abort(401)
+
+    # Not really "unauthorized", but if they are trying to form hack, close enough.
+    if rating not in ["great", "okay", "useless"]:
+        abort(401)
+
+    comment = db.get_or_404(Comment, id)
+    if comment.submission.email != session["email"]:
+        abort(401)
+
+    db.session.add(Feedback(comment_id=comment.id, rating=rating))
+    db.session.commit()
+
+    return "<strong>Feedback received: " + rating + "</strong>"
+
+
 @app.route("/submission/<id>", methods=["GET", "POST"])
 def submission(id):
     if "email" not in session:
@@ -235,29 +244,6 @@ def submission(id):
     submission = db.get_or_404(Submission, id)
     if (submission.email != session["email"]) and (session["email"] not in staff):
         return render_template("unavailable.html.jinja")
-    
-    comment_ids = [comment.comment_id for comment in submission.comments]
-    feedback_form = make_feedback_form(comment_ids, request.form)
-
-    
-    feedback_comment = None # comment for which feedback was given
-    id = None # id of the above comment 
-    for key in request.form.keys():
-        if request.form[key] == "Submit":
-            id = key
-            print(key in [str(x) for x in comment_ids])
-
-    
-    for comment in submission.comments:
-        if str(comment.comment_id) == id:
-            feedback_comment = comment 
-
-
-
-    #Default all dropdowns to "very useful" everytime a new form submission is made
-    for dropdown in feedback_form:
-        dropdown.feedback_choice.data = "very"
-
 
     if submission.email == session["email"]:
         db.session.add(Viewed(submission_id=submission.id))
@@ -265,8 +251,7 @@ def submission(id):
 
     return render_template(
         "submission_view.html.jinja",
-        submission = submission,
-        comments_and_forms = zip(submission.comments, feedback_form) 
+        submission = submission
     )
 
 @app.route("/entry", methods=["POST"])

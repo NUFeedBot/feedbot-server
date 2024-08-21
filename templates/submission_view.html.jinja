@@ -13,18 +13,22 @@
 {% endblock %}
 
 {% block content %}
-{% for (comment, form) in comments_and_forms %}
+{% for comment in submission.comments %}
     <article>
         <h3>{{comment.path}}</h3>
         <blockquote>{{comment.text}}</blockquote>
         <pre><code>{{comment.code}}</code></pre>
-        <form method="POST">
-            {{ form.hidden_tag() }}
-            {{ form.feedback_choice.label }}
-            {{ form.feedback_choice() }}
-            <br/>
-            <input type="submit" name="{{comment.comment_id}}" value= "Submit">
-        </form>
+        {% if submission.email == session["email"] %}
+            <div id="feedback-{{comment.id}}">
+                {% if comment.feedbacks != [] %}
+                  <strong>Feedback received: {{comment.feedbacks[0].rating}}</strong>
+                {% else %}
+                  <button hx-post="/feedback/{{comment.id}}/great" hx-target="#feedback-{{comment.id}}">Very Helpful</button>
+                  <button hx-post="/feedback/{{comment.id}}/okay" hx-target="#feedback-{{comment.id}}">Somewhat Helpful</button>
+                  <button hx-post="/feedback/{{comment.id}}/useless" hx-target="#feedback-{{comment.id}}">Not Helpful</button>
+                {% endif %}
+            </div>
+        {% endif %}
     </article>
 {% endfor %}
 {% endblock %}
