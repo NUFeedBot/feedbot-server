@@ -24,7 +24,8 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, Integer, DateTime
+from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
 
 staff = json.loads(open("staff.json").read())
@@ -99,10 +100,18 @@ class Comment(db.Model):
     text: Mapped[str]
     code: Mapped[str]
     path: Mapped[str]
-    subm_id = mapped_column(ForeignKey("submissions.id"))
+    submission_id = mapped_column(ForeignKey("submissions.id"))
 
     def __repr__(self):
         return f'Comment(line_number: "{self.line_number}", text: "{self.text}")'
+
+
+class Viewed(db.Model):
+    __tablename__ = "viewed"
+
+    id = db.Column(Integer, primary_key=True, autoincrement=True)
+    submission_id = mapped_column(ForeignKey("submissions.id"))
+    viewed_at = db.Column(DateTime(timezone=True), server_default=func.now())
 
 
 with app.app_context():
@@ -248,7 +257,11 @@ def submission(id):
     #Default all dropdowns to "very useful" everytime a new form submission is made
     for dropdown in feedback_form:
         dropdown.feedback_choice.data = "very"
-           
+
+
+    if submission.email == session["email"]:
+        db.session.add(Viewed(submission_id=submission.id))
+        db.session.commit()
 
     return render_template(
         "submission_view.html.jinja",
@@ -287,7 +300,7 @@ def transform(data):
                 text=com_json["text"],
                 code=com_json["code"],
                 path=com_json["path"],
-                subm_id=gen_id,
+                submission_id=gen_id,
             )
         )
 
