@@ -232,7 +232,27 @@ def feedback(rating,id):
     db.session.add(Feedback(comment_id=comment.id, rating=rating))
     db.session.commit()
 
-    return "<strong>Feedback received: " + rating + "</strong>"
+    return f"<strong>FeedBot Acknowledged; my comments were <mark>{rating}</mark>.</strong> <button hx-post=\"/feedback-undo/{comment.id}\" hx-target=\"#feedback-{comment.id}\">I didn't mean that</button>"
+
+@app.route("/feedback-undo/<id>", methods=["POST"])
+def feedback_undo(id):
+    if "email" not in session:
+        session["redirect_to"] = request.full_path
+        abort(401)
+
+    comment = db.get_or_404(Comment, id)
+    if comment.submission.email != session["email"]:
+        abort(401)
+
+    for f in comment.feedbacks:
+        db.session.delete(f)
+    db.session.commit()
+
+    # This should be refactored to not copy what is in the template
+    return f"""
+      <button hx-post="/feedback/{comment.id}/great" hx-target="#feedback-{comment.id}">Very Helpful</button>
+      <button hx-post="/feedback/{comment.id}/okay" hx-target="#feedback-{comment.id}">Somewhat Helpful</button>
+      <button hx-post="/feedback/{comment.id}/useless" hx-target="#feedback-{comment.id}">Not Helpful</button>"""
 
 
 @app.route("/submission/<id>", methods=["GET", "POST"])

@@ -21,7 +21,7 @@
         {% if submission.email == session["email"] %}
             <div id="feedback-{{comment.id}}">
                 {% if comment.feedbacks != [] %}
-                  <strong>Feedback received: {{comment.feedbacks[0].rating}}</strong>
+                  <strong>FeedBot Acknowledged; my comments were <mark>{{comment.feedbacks[0].rating}}</mark>.</strong> <button hx-post="/feedback-undo/{{comment.id}}" hx-target="#feedback-{{comment.id}}">I didn't mean that</button>
                 {% else %}
                   <button hx-post="/feedback/{{comment.id}}/great" hx-target="#feedback-{{comment.id}}">Very Helpful</button>
                   <button hx-post="/feedback/{{comment.id}}/okay" hx-target="#feedback-{{comment.id}}">Somewhat Helpful</button>
