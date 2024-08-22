@@ -284,13 +284,16 @@ def receive_entry():
         print(f"id: {id}")
         db.session.add(submission)
         db.session.commit()
-    return {"msg": f"id: {id}"}, 200
+        return {"msg": f"id: {id}"}, 200
+    else:
+        abort(401)
 
 
 # this will eventually validate that the sender of an entry is us,
 # presumably by using a shared key
 def validate(data):
-    return True
+    key = os.environ["FEEDBOT_KEY"]
+    return key == data['key']
 
 
 def transform(data):
