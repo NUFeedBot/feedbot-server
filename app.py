@@ -25,8 +25,6 @@ from sqlalchemy import ForeignKey, Integer, DateTime, String
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
 
-staff = json.loads(open("staff.json").read())
-
 # NOTE(dbp 2024-02-06): bit of a hack; probably better to do this with a .env file
 if "DATABASE_URL" not in os.environ:
     os.environ["DATABASE_URL"] = "postgresql://feedbot_user:111@localhost/feedbot_dev"
@@ -102,9 +100,17 @@ class Feedback(db.Model):
     added_at = db.Column(DateTime(timezone=True), server_default=func.now())
     rating = db.Column(String)
 
+class Staff(db.Model):
+    __tablename__ = "staff"
+
+    id = db.Column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str]
 
 with app.app_context():
     db.create_all()
+
+    global staff
+    staff = [s.email for s in db.session.query(Staff).all()]
 
 def redirect_back():
     if "redirect_to" in session:
