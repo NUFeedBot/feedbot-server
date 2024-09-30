@@ -282,8 +282,8 @@ def submission(id):
 
 @app.route("/entry", methods=["POST"])
 def receive_entry():
-    data = request.args
-    print(f"data: {data}")
+    data = request.get_json()
+    print(f"data: {data}\n")
     id = 0
     if validate(data):
         submission, id = transform(data)
@@ -306,7 +306,7 @@ def transform(data):
     # BAD: DO NOT DO PURE RANDOM FOR ID GEN
     gen_id = uuid.uuid4()
 
-    comment_json_list = json.loads(data["comments"])["comments"]
+    comment_json_list = data["comments"]["comments"]
     comment_list = []
     for com_json in comment_json_list:
         comment_list.append(
