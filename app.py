@@ -9,7 +9,18 @@ import json
 from dotenv import load_dotenv
 import uuid
 import re
+from threading import Thread
 from werkzeug.middleware.proxy_fix import ProxyFix
+
+import asyncio
+from openai import AsyncOpenAI
+import lib.query
+import lib.submission
+import lib.assignment
+
+from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
 
 from flask import Flask, redirect, request, url_for, session, current_app, abort, flash, render_template
 
@@ -21,6 +32,9 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
+
+from typing import Optional
+
 from sqlalchemy import ForeignKey, Integer, DateTime, String
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
@@ -59,6 +73,17 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 db = SQLAlchemy(model_class=Base)
 db.init_app(app)
 
+class Waiting(db.Model):
+    __tablename__ = "waitings"
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, unique=True, default=uuid.uuid4)
+    email: Mapped[str]
+    config: Mapped[str]
+    spec: Mapped[str]
+    template: Mapped[str]
+    submission: Mapped[str]
+    problem: Mapped[Optional[str]]
+    started_at  = db.Column(DateTime(timezone=True))
 
 class Submission(db.Model):
     __tablename__ = "submissions"
@@ -66,7 +91,7 @@ class Submission(db.Model):
     id = db.Column(UUID(as_uuid=True), primary_key=True, unique=True, default=uuid.uuid4)
     email: Mapped[str]
     comments: Mapped[List["Comment"]] = relationship(back_populates="submission")
-
+    created_at = db.Column(DateTime(timezone=True), server_default=func.now())
 
 class Comment(db.Model):
     __tablename__ = "comments"
@@ -261,30 +286,109 @@ def feedback_undo(id):
       <button hx-post="/feedback/{comment.id}/useless" hx-target="#feedback-{comment.id}">Not Helpful</button>"""
 
 
-@app.route("/submission/<id>", methods=["GET", "POST"])
+
+@app.route("/submission", methods=["POST"])
+def add_submission():
+    data = request.get_json()
+    if validate(data):
+
+        w = Waiting(email=data["email"],
+                    config=json.dumps(data["config"]),
+                    spec=json.dumps(data["spec"]),
+                    template=data["template"],
+                    submission=data["submission"],
+                    problem=data["problem"])
+
+        db.session.add(w)
+        db.session.commit()
+        return {"id": f"{w.id}"}, 200
+    else:
+        abort(401)
+
+def resolve_waiting(id, app_context):
+    app_context.push()
+
+    print(f"RESOLVING {id}")
+
+    w = db.session.get(Waiting, id)
+    w.started_at = datetime.now(timezone.utc)
+
+    db.session.commit()
+
+    key = os.environ["OPENAI_KEY"]
+    config = json.loads(w.config)
+
+    client = AsyncOpenAI(api_key=key)
+
+    template = lib.submission.SubmissionTemplate([l.rstrip("\n") for l in w.template.splitlines()])
+
+    assignment = lib.assignment.AssignmentStatement(json.loads(w.spec), template)
+    submission = lib.submission.SubmissionTemplate([l.rstrip("\n") for l in w.submission.splitlines()])
+
+
+    comments = asyncio.run(lib.query.get_comment(client,
+                                            assignment,
+                                                 submission,
+                                                 config,
+                                                 w.problem))
+
+    comment_list = []
+    for com in comments:
+        comment_list.append(
+            Comment(
+                text=com["text"],
+                code=com["code"],
+                path=com["path"],
+                submission_id=id,
+            )
+        )
+
+    sub = Submission(id=id,
+                     email=w.email,
+                     comments=comment_list)
+    db.session.add(sub)
+    db.session.commit()
+
+
+@app.route("/submission/<id>", methods=["GET"])
 def submission(id):
     if "email" not in session:
         session["redirect_to"] = request.full_path
         return oauth2_login()
 
-    submission = db.get_or_404(Submission, id)
-    if (submission.email != session["email"]) and (session["email"] not in staff):
-        return render_template("unavailable.html.jinja")
+    submission = Submission.query.get(id)
 
-    if submission.email == session["email"]:
-        db.session.add(Viewed(submission_id=submission.id))
-        db.session.commit()
+    if submission is None:
+        waiting = db.get_or_404(Waiting, id)
+        if (waiting.email != session["email"]) and (session["email"] not in staff):
+            return render_template("unavailable.html.jinja")
 
-    return render_template(
-        "submission_view.html.jinja",
-        submission = submission
-    )
+        if waiting.started_at is None or (waiting.started_at + timedelta(minutes=1) < datetime.now(timezone.utc)):
+            Thread(target=resolve_waiting, args=(id, current_app.app_context(),), daemon=True).start()
+
+        return render_template(
+            "waiting_view.html.jinja",
+            waiting = waiting
+        )
+
+    else:
+        if (submission.email != session["email"]) and (session["email"] not in staff):
+            return render_template("unavailable.html.jinja")
+
+        if submission.email == session["email"]:
+            db.session.add(Viewed(submission_id=submission.id))
+            db.session.commit()
+
+        return render_template(
+            "submission_view.html.jinja",
+            submission = submission
+        )
+
+
 
 @app.route("/entry", methods=["POST"])
 def receive_entry():
     data = request.get_json()
-    print(f"data: {data}\n")
-    id = 0
     if validate(data):
         submission, id = transform(data)
         print(f"id: {id}")
@@ -293,6 +397,7 @@ def receive_entry():
         return {"msg": f"id: {id}"}, 200
     else:
         abort(401)
+
 
 
 # this will eventually validate that the sender of an entry is us,
