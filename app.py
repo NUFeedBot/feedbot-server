@@ -14,9 +14,6 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 import asyncio
 from openai import AsyncOpenAI
-import lib.query
-import lib.submission
-import lib.assignment
 
 from datetime import datetime
 from datetime import timedelta
@@ -78,12 +75,21 @@ class Waiting(db.Model):
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, unique=True, default=uuid.uuid4)
     email: Mapped[str]
-    config: Mapped[str]
-    spec: Mapped[str]
-    template: Mapped[str]
-    submission: Mapped[str]
-    problem: Mapped[Optional[str]]
+    model: Mapped[str]
+    parts: Mapped[List["Part"]] = relationship(back_populates="waiting")
     started_at  = db.Column(DateTime(timezone=True))
+
+class Part(db.Model):
+    __tablename__ = "parts"
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    path: Mapped[str]
+    prompt: Mapped[str]
+    delimiter: Mapped[str]
+    code: Mapped[str]
+    waiting_id = mapped_column(ForeignKey("waitings.id"))
+    waiting: Mapped["Waiting"] = relationship(back_populates="parts")
+
 
 class Submission(db.Model):
     __tablename__ = "submissions"
@@ -292,18 +298,62 @@ def add_submission():
     data = request.get_json()
     if validate(data):
 
-        w = Waiting(email=data["email"],
-                    config=json.dumps(data["config"]),
-                    spec=json.dumps(data["spec"]),
-                    template=data["template"],
-                    submission=data["submission"],
-                    problem=data["problem"])
+        wid = uuid.uuid4()
+        plist = []
+        for p in data["parts"]:
+            if "delimiter" in p:
+                d = p["delimiter"]
+            else:
+                d = None
+            plist.append(
+                Part(
+                    path=p["path"],
+                    prompt=p["prompt"],
+                    code=p["code"],
+                    delimiter=d,
+                    waiting_id = wid
+                )
+            )
+
+        w = Waiting(id = wid,
+                    email=data["email"],
+                    model=data["model"],
+                    parts=plist)
 
         db.session.add(w)
         db.session.commit()
         return {"id": f"{w.id}"}, 200
     else:
         abort(401)
+
+async def resolve_part(client, model, part):
+    messages = [{"role": "user", "content": part.prompt}]
+    chat_completion = await client.chat.completions.create(
+            messages=messages,
+            model=model)
+    res = chat_completion.choices[0].message.content
+    if part.delimiter:
+        cut = cut_at_delimiter(res, part.delimiter)
+    else:
+        cut = res
+    return {"text": redact_codeblocks(cut),
+            "code": part.code,
+            "path": part.path}
+
+async def resolve_all(client, model, parts):
+    return await asyncio.gather(*[resolve_part(client, model, p) for p in parts], return_exceptions=True)
+
+def cut_at_delimiter(text, delimiter):
+    sides = text.split(delimiter)
+    if len(sides) < 2: return "FeedBot got confused. We're sorry!"
+    return sides[-1]
+
+def redact_codeblocks(text):
+    # Regular expression pattern to match markdown code blocks
+    codeblock_pattern = r'```(?:.*)\n([\s\S]*?)```'
+    redacted_text = re.sub(codeblock_pattern, "[CODE REDACTED]", text)
+    return redacted_text
+
 
 def resolve_waiting(id, app_context):
     app_context.push()
@@ -315,22 +365,16 @@ def resolve_waiting(id, app_context):
 
     db.session.commit()
 
+    print("Marked started")
+
+
     key = os.environ["OPENAI_KEY"]
-    config = json.loads(w.config)
 
     client = AsyncOpenAI(api_key=key)
 
-    template = lib.submission.SubmissionTemplate([l.rstrip("\n") for l in w.template.splitlines()])
+    comments = asyncio.run(resolve_all(client, w.model, w.parts))
 
-    assignment = lib.assignment.AssignmentStatement(json.loads(w.spec), template)
-    submission = lib.submission.SubmissionTemplate([l.rstrip("\n") for l in w.submission.splitlines()])
-
-
-    comments = asyncio.run(lib.query.get_comment(client,
-                                            assignment,
-                                                 submission,
-                                                 config,
-                                                 w.problem))
+    print(comments)
 
     comment_list = []
     for com in comments:
@@ -408,7 +452,6 @@ def validate(data):
 
 
 def transform(data):
-    # BAD: DO NOT DO PURE RANDOM FOR ID GEN
     gen_id = uuid.uuid4()
 
     comment_json_list = data["comments"]["comments"]
